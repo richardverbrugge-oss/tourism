@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install *)",
+      "Bash(python3 -c ' *)",
+      "Bash(grep -vE '^\\\\s*$')",
+      "Bash(python3 -m nbconvert --to html ENews_Express_Learner_Notebook_Full_Code.ipynb)"
+    ]
+  }
+}
