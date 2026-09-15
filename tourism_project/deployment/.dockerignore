@@ -1,0 +1,7 @@
+# Whitelist: ignore everything, then allow exactly the files the image is built from.
+# The app is public, and the project also contains customer data, an experiment database and
+# notebooks. With a whitelist none of that can end up in the image, even when files are added later.
+*
+!app.py
+!requirements.txt
+!.streamlit/config.toml

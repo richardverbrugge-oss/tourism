@@ -1,0 +1,14 @@
+# Packages for the Streamlit app, pinned to exact versions.
+#
+# The first five must be identical to the training environment ("packages" in model_metadata.json):
+# a saved model only loads reliably, and scores identically, with the versions it was saved with.
+# app.py checks this at start-up and refuses to run on a mismatch.
+scikit-learn==1.9.1
+xgboost==3.4.1
+numpy==2.5.1
+pandas==3.0.3
+joblib==1.6.0
+
+# App only. MLflow is deliberately absent: the app does not track experiments.
+streamlit==1.63.0
+huggingface_hub==1.31.0

@@ -222,3 +222,15 @@ __marimo__/
 CLAUDE.md
 CLAUDE.local.md
 .claudeignore
+
+# MLflow
+mlflow.db
+mlflow.db-journal
+mlruns/
+mlartifacts/
+
+# Pipeline outputs (splits, model bundle, mlflow.db) — they live on the Hub, not in git
+outputs/
+
+# HP Sure Click sandbox placeholders (unreadable, local only)
+~BROMIUM/

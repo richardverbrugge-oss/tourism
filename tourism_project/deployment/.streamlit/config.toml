@@ -1,0 +1,16 @@
+# Streamlit settings for the public app.
+
+[server]
+# No browser window to open inside a container.
+headless = true
+# Protection against cross-site request forgery stays on for a public app.
+enableXsrfProtection = true
+
+[browser]
+# Do not send usage statistics to Streamlit.
+gatherUsageStats = false
+
+[client]
+# Visitors see a generic message on an error; details (which could reveal internals) only go to the
+# server log. Note: `false` would mean "show the stack trace" in this Streamlit version.
+showErrorDetails = "none"
