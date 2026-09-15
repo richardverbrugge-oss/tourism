@@ -1,0 +1,178 @@
+# MLOps pipeline for the Visit with Us Wellness Tourism model.
+#
+# Every change to the pipeline code on the main branch runs the full workflow automatically:
+#
+#   register-dataset  ->  data-prep  ->  model-training  ->  deploy-hosting
+#   raw data on Hub       train/test     model on Hub        app in the public Space
+#
+# The jobs run the same scripts as the notebook (tourism.ipynb). The Hugging Face Hub is the shared storage
+# between them: each job reads its input from the Hub and writes its output back, and the exact version it
+# produced (a commit id) is passed on to the next job.
+#
+# Required secret: HF_TOKEN, a Hugging Face token with write access to the dataset repository, the model
+# repository and the Space (Settings -> Secrets and variables -> Actions in the GitHub repository).
+
+name: Tourism Project Pipeline
+
+on:
+  # Automatic run on every push to main that changes the pipeline code or this workflow. Changes that do
+  # not affect the model, such as the notebook or documentation, do not start a new training run.
+  push:
+    branches:
+      - main
+    paths:
+      - "tourism_project/**"
+      - ".github/**"
+  # Manual run from the Actions tab, e.g. to rebuild everything without a code change.
+  workflow_dispatch:
+
+# The jobs only need to read the repository; everything they write goes to the Hugging Face Hub.
+permissions:
+  contents: read
+
+# One pipeline at a time: two runs uploading to the same Hub repositories at once could interleave.
+# A newer push waits for the running pipeline instead of cancelling it halfway through an upload.
+concurrency:
+  group: tourism-pipeline
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"                # show script output in the log as it happens
+  HF_HUB_DISABLE_PROGRESS_BARS: "1"    # keep upload progress bars out of the log
+
+jobs:
+
+  # ---------------------------------------------------------------------------------------------------------
+  # 1. Register the raw dataset (tourism_project/data/tourism.csv) in the private Hugging Face dataset repo.
+  #    Unchanged data creates no new commit.
+  # ---------------------------------------------------------------------------------------------------------
+  register-dataset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-pipeline
+
+      - name: Upload dataset to Hugging Face Hub
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python -m tourism_project.model_building.data_register
+
+  # ---------------------------------------------------------------------------------------------------------
+  # 2. Clean the data, group near-copies of records, make the group-aware train/test split and upload both
+  #    files. The commit id of that upload (data_revision) is passed on to training.
+  # ---------------------------------------------------------------------------------------------------------
+  data-prep:
+    needs: register-dataset
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      data_revision: ${{ steps.prep.outputs.data_revision }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-pipeline
+
+      - name: Run data preparation
+        id: prep   # prep.py writes data_revision to GITHUB_OUTPUT
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python -m tourism_project.model_building.prep
+
+  # ---------------------------------------------------------------------------------------------------------
+  # 3. Compare the candidate models, select one, evaluate it once on the test set and register it in the
+  #    private model repository. The commit id of the registered model (model_revision) goes to hosting.
+  #
+  #    Experiment tracking: every run is logged to MLflow in outputs/mlflow.db. The candidates table, the
+  #    selection and the test results appear on this workflow run's summary page; the MLflow database is
+  #    kept as the artifact "mlflow" and can be opened locally with
+  #    `mlflow ui --backend-store-uri sqlite:///mlflow.db`. No MLflow server is started here, because
+  #    nobody could open it on a CI machine.
+  # ---------------------------------------------------------------------------------------------------------
+  model-training:
+    needs: data-prep
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      model_revision: ${{ steps.train.outputs.model_revision }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-pipeline
+
+      - name: Train, select and register the model
+        id: train   # train.py writes model_revision to GITHUB_OUTPUT and tables to the run summary
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          DATA_REVISION: ${{ needs.data-prep.outputs.data_revision }}   # train on exactly this split
+        run: python -m tourism_project.model_building.train
+
+      # Kept even when training fails, so a failed run can be investigated. Contains aggregated metrics and
+      # parameters only, no customer rows.
+      - name: Keep the MLflow experiment database
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mlflow
+          path: |
+            outputs/mlflow.db
+            outputs/model/operating_points.csv
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------------------------------------
+  # 4. Build the app's Docker image and test it BEFORE anything is published: the container must become
+  #    healthy, run as the non-root user, contain only the app files, and reproduce the trained model's
+  #    scores. Only when all checks pass are the deployment files pushed to the public Hugging Face Space,
+  #    with the Space variable MODEL_REVISION set to the model registered in job 3.
+  # ---------------------------------------------------------------------------------------------------------
+  deploy-hosting:
+    needs: [register-dataset, data-prep, model-training]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-pipeline
+
+      - name: Build the app image
+        run: docker build -t tourism-app tourism_project/deployment
+
+      # The token is passed as an environment variable from the secret (never written in the command) and
+      # only exists inside this temporary test container.
+      - name: Start the app container
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          MODEL_REVISION: ${{ needs.model-training.outputs.model_revision }}
+        run: docker run -d --name tourism-app -p 8501:8501 -e HF_TOKEN -e MODEL_REVISION tourism-app
+
+      - name: Test the app container
+        run: |
+          # 1. Wait until the container's HEALTHCHECK reports that Streamlit answers.
+          for attempt in $(seq 1 30); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' tourism-app)
+            echo "health status: $status"
+            if [ "$status" = "healthy" ]; then break; fi
+            sleep 5
+          done
+          test "$status" = "healthy"
+
+          # 2. The app runs as user id 1000, not as root (required by Hugging Face Spaces).
+          test "$(docker exec tourism-app id -u)" = "1000"
+          echo "runs as user id 1000"
+
+          # 3. Only the app and its settings are in the image, nothing else from the project.
+          contents="$(docker exec tourism-app ls -A /home/user/app | tr '\n' ' ')"
+          echo "app folder contains: $contents"
+          test "$contents" = ".streamlit app.py "
+
+          # 4. Installed versions equal the training versions, and the check profiles score identically.
+          docker exec -i tourism-app python - < tourism_project/hosting/container_check.py
+
+      - name: Show container log and remove the container
+        if: always()
+        run: |
+          docker logs tourism-app || true
+          docker rm -f tourism-app || true
+
+      - name: Deploy to the Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          MODEL_REVISION: ${{ needs.model-training.outputs.model_revision }}   # serve exactly this model
+        run: python -m tourism_project.hosting.hosting

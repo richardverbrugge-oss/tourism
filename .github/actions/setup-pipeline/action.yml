@@ -1,0 +1,28 @@
+# Shared setup for every job of the pipeline: the same Python version and the same pinned packages.
+#
+# Every job in GitHub Actions starts on a fresh machine, so each job has to install Python and the
+# packages again. Keeping these steps in one place means a version change is made once and all jobs
+# stay identical. A job uses it after checking out the repository:
+#
+#   - uses: actions/checkout@v7
+#   - uses: ./.github/actions/setup-pipeline
+
+name: Set up the pipeline environment
+description: Install Python 3.12 and the pinned packages from tourism_project/requirements.txt
+
+runs:
+  using: composite
+  steps:
+    # Python 3.12 is required: numpy 2.5 and xgboost 3.4 do not support older versions. The pip cache
+    # makes later runs faster; it is refreshed whenever requirements.txt changes.
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v7
+      with:
+        python-version: "3.12"
+        cache: pip
+        cache-dependency-path: tourism_project/requirements.txt
+
+    # Exact versions, so every run trains and scores with the same environment.
+    - name: Install pinned packages
+      shell: bash
+      run: pip install -r tourism_project/requirements.txt

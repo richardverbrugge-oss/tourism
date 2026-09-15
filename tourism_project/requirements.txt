@@ -1,0 +1,20 @@
+# Packages for the pipeline jobs in GitHub Actions (data registration, preparation, training, hosting).
+#
+# Every version is pinned exactly, so each pipeline run uses the same environment and produces the same
+# results. The model that training registers records these versions in model_metadata.json.
+#
+# The first five MUST stay identical to tourism_project/deployment/requirements.txt: the app has to load
+# and score the model with the versions it was trained with. The pipeline checks this in the app
+# container before deploying (tourism_project/hosting/container_check.py).
+pandas==3.0.3
+numpy==2.5.1
+scikit-learn==1.9.1
+xgboost==3.4.1
+joblib==1.6.0
+
+# Used by data preparation (grouping near-copies of records).
+scipy==1.18.0
+
+# Experiment tracking during training, and access to the Hugging Face Hub in every job.
+mlflow==3.16.0
+huggingface_hub==1.31.0
