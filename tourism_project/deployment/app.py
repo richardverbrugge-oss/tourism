@@ -1,4 +1,4 @@
-"""Streamlit app: which customers should the sales team contact first?
+"""Streamlit app "Score a Lead": should the sales team contact this lead first?
 
 Context
     Visit with Us is introducing the Wellness Tourism Package. Contacting every customer is expensive,
@@ -8,9 +8,9 @@ Context
         data_register.py  ->  prep.py  ->  train.py         ->  this app
                                            model on the Hub      (Hugging Face Space)
 
-    A user enters one customer profile; the app returns a ranking score and the contact group the
-    customer falls into (top 5%, 10% or 20% of customers), together with how well that group did on
-    test customers the model never saw during training.
+    A lead is a customer who has not been contacted yet. A user enters the profile of one lead; the app
+    returns a ranking score and the contact group the lead falls into (top 5%, 10% or 20% of customers),
+    together with how well that group did on test customers the model never saw during training.
 
 Where things come from
     - The trained model, its metadata and its operating points are downloaded from the private
@@ -264,7 +264,7 @@ def input_widget(feature: str, label: str, metadata: dict, default: object) -> o
 
 
 def customer_form(metadata: dict) -> pd.DataFrame | None:
-    """Show the input form; return the customer as a one-row DataFrame after submit, else None."""
+    """Show the input form; return the lead as a one-row DataFrame after submit, else None."""
     typical_customer = metadata["parity_examples"][0]["input"]
     answers = {}
     with st.form("customer"):
@@ -274,7 +274,7 @@ def customer_form(metadata: dict) -> pd.DataFrame | None:
             for position, (feature, label) in enumerate(fields.items()):
                 with columns[position % 2]:
                     answers[feature] = input_widget(feature, label, metadata, typical_customer[feature])
-        submitted = st.form_submit_button("Score this customer", type="primary")
+        submitted = st.form_submit_button("Score this lead", type="primary")
 
     if not submitted:
         return None
@@ -305,7 +305,7 @@ def test_results(operating_points: pd.DataFrame) -> pd.DataFrame:
 
 
 def operating_point_view(score: float, metadata: dict, operating_points: pd.DataFrame) -> pd.DataFrame:
-    """Table: for each contact group, its threshold, whether this customer is in it, and test results."""
+    """Table: for each contact group, its threshold, whether this lead is in it, and test results."""
     thresholds = metadata["operating_points"]
     results = test_results(operating_points)
     rows = []
@@ -314,7 +314,7 @@ def operating_point_view(score: float, metadata: dict, operating_points: pd.Data
             {
                 "Contact group": label,
                 "Score needed": round(thresholds[key], 3),
-                "This customer": "yes" if score >= thresholds[key] else "no",
+                "This lead": "yes" if score >= thresholds[key] else "no",
                 "Buyers among contacted (test)": f"{results.loc[key, 'precision']:.0%}",
                 "Better than random (test)": f"{results.loc[key, 'lift']:.1f}x",
             }
@@ -323,14 +323,14 @@ def operating_point_view(score: float, metadata: dict, operating_points: pd.Data
 
 
 def show_verdict(score: float, metadata: dict, operating_points: pd.DataFrame) -> None:
-    """Headline message: the most selective contact group this customer belongs to."""
+    """Headline message: the most selective contact group this lead belongs to."""
     thresholds = metadata["operating_points"]
     results = test_results(operating_points)
 
     for key, label in CONTACT_GROUPS.items():  # most selective group first
         if score >= thresholds[key]:
             st.success(
-                f"**{label}** — contact this customer. In the test set, "
+                f"**{label}** — contact this lead. In the test set, "
                 f"{results.loc[key, 'precision']:.0%} of the customers in this group bought the package, "
                 f"{results.loc[key, 'lift']:.1f} times the average rate."
             )
@@ -365,12 +365,13 @@ def model_info(settings: AppSettings, metadata: dict) -> None:
 
 
 def main() -> None:
-    """Load and check the model, show the form, and explain the score of a submitted customer."""
-    st.set_page_config(page_title="Wellness Tourism – Customer Priority", page_icon="🧳")
-    st.title("Wellness Tourism – Customer Priority")
+    """Load and check the model, show the form, and explain the score of a submitted lead."""
+    st.set_page_config(page_title="Score a Lead – Wellness Tourism", page_icon="🧳")
+    st.title("Score a Lead")
     st.write(
-        "Enter the profile of one customer to see whether they belong to the group most likely to buy "
-        "the Wellness Tourism Package. Only information known before contacting the customer is used."
+        "A lead is a customer who has not been contacted yet. Enter the profile of one lead to see whether "
+        "they belong to the group most likely to buy the Wellness Tourism Package, so the sales team knows "
+        "whom to contact first. Only information known before the first contact is used."
     )
 
     settings = read_settings()
@@ -403,7 +404,7 @@ def main() -> None:
         outside = out_of_range_fields(customer, metadata)
         if outside:
             st.error(
-                "**No score for this customer.** The model was trained on customers within these ranges "
+                "**No score for this lead.** The model was trained on customers within these ranges "
                 "and cannot reliably assess values outside them:\n\n- " + "\n- ".join(outside)
             )
             model_info(settings, metadata)

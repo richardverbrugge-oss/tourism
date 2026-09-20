@@ -4,8 +4,7 @@
 # results. The model that training registers records these versions in model_metadata.json.
 #
 # The first five MUST stay identical to tourism_project/deployment/requirements.txt: the app has to load
-# and score the model with the versions it was trained with. The pipeline checks this in the app
-# container before deploying (tourism_project/hosting/container_check.py).
+# and score the model with the versions it was trained with. The app checks this when it starts.
 pandas==3.0.3
 numpy==2.5.1
 scikit-learn==1.9.1

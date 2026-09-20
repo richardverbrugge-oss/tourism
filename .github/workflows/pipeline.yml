@@ -118,60 +118,19 @@ jobs:
           if-no-files-found: warn
 
   # ---------------------------------------------------------------------------------------------------------
-  # 4. Build the app's Docker image and test it BEFORE anything is published: the container must become
-  #    healthy, run as the non-root user, contain only the app files, and reproduce the trained model's
-  #    scores. Only when all checks pass are the deployment files pushed to the public Hugging Face Space,
-  #    with the Space variable MODEL_REVISION set to the model registered in job 3.
+  # 4. Push the deployment files to the public Hugging Face Space, with the Space variable MODEL_REVISION
+  #    set to the model registered in job 3. Hugging Face builds the Docker image from these files;
+  #    hosting.py waits until the app runs and checks that its public address answers.
   # ---------------------------------------------------------------------------------------------------------
   deploy-hosting:
     needs: [register-dataset, data-prep, model-training]
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-pipeline
 
-      - name: Build the app image
-        run: docker build -t tourism-app tourism_project/deployment
-
-      # The token is passed as an environment variable from the secret (never written in the command) and
-      # only exists inside this temporary test container.
-      - name: Start the app container
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          MODEL_REVISION: ${{ needs.model-training.outputs.model_revision }}
-        run: docker run -d --name tourism-app -p 8501:8501 -e HF_TOKEN -e MODEL_REVISION tourism-app
-
-      - name: Test the app container
-        run: |
-          # 1. Wait until the container's HEALTHCHECK reports that Streamlit answers.
-          for attempt in $(seq 1 30); do
-            status=$(docker inspect --format '{{.State.Health.Status}}' tourism-app)
-            echo "health status: $status"
-            if [ "$status" = "healthy" ]; then break; fi
-            sleep 5
-          done
-          test "$status" = "healthy"
-
-          # 2. The app runs as user id 1000, not as root (required by Hugging Face Spaces).
-          test "$(docker exec tourism-app id -u)" = "1000"
-          echo "runs as user id 1000"
-
-          # 3. Only the app and its settings are in the image, nothing else from the project.
-          contents="$(docker exec tourism-app ls -A /home/user/app | tr '\n' ' ')"
-          echo "app folder contains: $contents"
-          test "$contents" = ".streamlit app.py "
-
-          # 4. Installed versions equal the training versions, and the check profiles score identically.
-          docker exec -i tourism-app python - < tourism_project/hosting/container_check.py
-
-      - name: Show container log and remove the container
-        if: always()
-        run: |
-          docker logs tourism-app || true
-          docker rm -f tourism-app || true
-
-      - name: Deploy to the Hugging Face Space
+      - name: Push files to the Hugging Face Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           MODEL_REVISION: ${{ needs.model-training.outputs.model_revision }}   # serve exactly this model

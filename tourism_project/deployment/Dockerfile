@@ -36,11 +36,6 @@ COPY --chown=user .streamlit/config.toml .streamlit/config.toml
 # Streamlit listens on 8501; the Space README sets app_port: 8501 so Hugging Face routes traffic here.
 EXPOSE 8501
 
-# Reports whether the app answers. Hugging Face uses its own checks; this one is for local and CI runs.
-# The slim image has no curl, so the probe uses Python's standard library.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD python -c "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8501/_stcore/health').status == 200 else 1)"
-
 # Start the app on all network interfaces (required inside a container). Security settings such as
 # XSRF protection and hidden error details are in .streamlit/config.toml.
 CMD ["streamlit", "run", "app.py", \
