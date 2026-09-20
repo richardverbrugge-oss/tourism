@@ -217,11 +217,7 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Claude Code
-.claude/
-CLAUDE.md
-CLAUDE.local.md
-.claudeignore
+notes/
 
 # MLflow
 mlflow.db
