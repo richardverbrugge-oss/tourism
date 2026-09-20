@@ -50,7 +50,7 @@ import pandas as pd
 from huggingface_hub import CommitOperationAdd, HfApi, hf_hub_download
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
-from sklearn.model_selection import StratifiedGroupKFold
+from sklearn.model_selection import StratifiedGroupKFold, train_test_split
 
 from tourism_project.ci import export_github_output
 from tourism_project.config import Config
@@ -369,6 +369,49 @@ def upload_splits(api: HfApi, cfg: Config, paths: list[Path]) -> str:
     return commit.oid
 
 
+def plain_split_leakage(grouped: pd.DataFrame, cfg: Config) -> tuple[int, int]:
+    """How many test rows an ordinary random split would leave with a near-copy in train."""
+    # The comparison that justifies the group-aware split: split the same rows the ordinary way
+    # (stratified on the target, ignoring the groups) and count the test rows whose group also
+    # occurs in train. Those rows would be scored on a customer the model had already seen.
+    train, test = train_test_split(
+        grouped,
+        test_size=cfg.test_size,
+        stratify=grouped[cfg.target],
+        random_state=cfg.random_state,
+    )
+    groups_in_train = set(train[cfg.group_column])
+    leaking = int(test[cfg.group_column].isin(groups_in_train).sum())
+    return leaking, len(test)
+
+
+def print_data_quality(
+    raw: pd.DataFrame, cleaned: pd.DataFrame, grouped: pd.DataFrame, cfg: Config
+) -> None:
+    """Print the counts behind the cleaning rules and the split, so no number is unexplained."""
+    # Only counts and shares are printed: this output ends up in a public repository and in the
+    # GitHub Actions log, where customer rows do not belong.
+    print(f"Raw data       : {len(raw)} customers | buyers {raw[cfg.target].mean():.2%}")
+
+    renamed = int((raw["Gender"] != cleaned["Gender"]).sum())
+    incomes_removed = int(cleaned["MonthlyIncome"].isna().sum() - raw["MonthlyIncome"].isna().sum())
+    trips_removed = int(cleaned["NumberOfTrips"].isna().sum() - raw["NumberOfTrips"].isna().sum())
+    valid_income = cleaned["MonthlyIncome"].dropna()
+    print(f"Cleaning       : {renamed} Gender spelling variants merged "
+          f"| {incomes_removed} incomes and {trips_removed} trip counts outside the realistic range "
+          f"-> missing")
+    print(f"                 remaining incomes run from {valid_income.min():,.0f} to {valid_income.max():,.0f}")
+
+    group_sizes = grouped[cfg.group_column].value_counts()
+    rows_with_copy = int(group_sizes[group_sizes > 1].sum())
+    print(f"Near-copies    : {rows_with_copy} of {len(grouped)} rows ({rows_with_copy / len(grouped):.0%}) "
+          f"have at least one near-copy | {len(group_sizes)} groups")
+
+    leaking, test_rows = plain_split_leakage(grouped, cfg)
+    print(f"Why grouping   : an ordinary random split would leave {leaking} of {test_rows} test rows "
+          f"with a near-copy in train; the group-aware split below leaves 0")
+
+
 def print_report(
     cfg: Config, train: pd.DataFrame, test: pd.DataFrame, data_revision: str, unchanged: bool
 ) -> None:
@@ -405,8 +448,9 @@ def main() -> None:
     # 2. Clean
     cleaned = clean_values(raw, cfg)
 
-    # 3. Group near-copies
+    # 3. Group near-copies, then report the counts behind the cleaning rules and the grouping
     grouped = add_group_id(cleaned, cfg)
+    print_data_quality(raw, cleaned, grouped, cfg)
 
     # 4. Split, check the split while CustomerID is still present, then drop extra columns
     train, test = split_by_group(grouped, cfg)

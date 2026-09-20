@@ -182,7 +182,11 @@ class Config:
     # per validation fold every good model varies by 0.06-0.09, and chance differences between
     # models are handled by the final comparison on 15 paired folds instead.
     min_lift_over_dummy: float = 0.10
-    tie_tolerance_se: float = 1.0      # finalists within 1 standard error count as a tie
+    # How large the PR-AUC difference between the two finalists must be to count as real: this many
+    # times the standard error of that difference over the 15 final folds. The standard error says
+    # how much the average difference still wobbles, so 1.0 means "the lead must exceed the noise";
+    # anything smaller is a tie and is decided by the tie-breaks in train.py.
+    tie_tolerance_se: float = 1.0
     # Last tie-break: prefer the simpler model family (faster, easier to explain, lighter app).
     simplicity_order: tuple[str, ...] = ("random_forest", "xgboost")
 
@@ -191,7 +195,11 @@ class Config:
     # Precision ("share of contacted customers who buy") and lift ("times better than calling
     # at random") are reported for the top 5%, 10% and 20% of the model's ranking.
     contact_fractions: tuple[float, ...] = (0.05, 0.10, 0.20)
-    tiebreak_contact_fraction: float = 0.10  # first tie-break between the two finalists
+    # The share used as the first tie-break between the two finalists, and the one reported next to
+    # the ranking metrics for every candidate. If PR-AUC cannot separate two models, the decision
+    # falls on the part of the ranking that is actually called. 10% is the middle of the three
+    # budgets above: 5% is too small to measure reliably, 20% dilutes the difference at the top.
+    tiebreak_contact_fraction: float = 0.10
     n_bootstrap: int = 1_000                 # resamples for the uncertainty ranges on test
 
     # --- Final checks on the test set ---

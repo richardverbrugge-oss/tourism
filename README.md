@@ -1,6 +1,6 @@
 # Visit with Us – Wellness Tourism MLOps Pipeline
 
-End-to-end MLOps pipeline that predicts, **before a customer is contacted**, whether that customer is likely
+End-to-end MLOps pipeline that predicts, before a customer is contacted, whether that customer is likely
 to buy the new Wellness Tourism Package (`ProdTaken`). The sales team can then contact the most promising
 customers first instead of calling everyone.
 
@@ -136,7 +136,7 @@ All selection rules are fixed in `Config` before any model is trained.
    value + one-hot encoding for categories) and a model: dummy baseline, Random Forest baseline, XGBoost
    baseline, tuned Random Forest, tuned XGBoost. Class imbalance (19% buyers) is handled with `class_weight`
    and `scale_pos_weight`.
-3. **Cross-validation and tuning** – group-aware 5-fold CV on the train set only, ranked on **PR-AUC**
+3. **Cross-validation and tuning** – group-aware 5-fold CV on the train set only, ranked on PR-AUC
    (average precision). Tuned models use `RandomizedSearchCV` (30 combinations).
 4. **Selection** – gate: PR-AUC must beat the dummy model by at least 0.10. The two best models are compared
    again on 15 paired folds (3 seeds); a difference within one standard error is a tie, broken by precision in
@@ -183,7 +183,7 @@ into (top 5%, 10% or 20%), with how that group performed on the test set.
   `MODEL_REVISION`, with a read-only token (Space secret `HF_TOKEN`).
 - The inputs are collected into a one-row pandas DataFrame in the model's column order.
 - Form fields follow the metadata: only known categories, and the training range shown for every number. A
-  value outside the training range gets **no score**, because the model has no information about such
+  value outside the training range gets no score, because the model has no information about such
   customers.
 - At start-up the app checks that installed package versions equal the training versions and that the check
   profiles get exactly the stored scores; otherwise it stops.
@@ -243,7 +243,7 @@ about 11 minutes, most of it training.
 |---|---|---|
 | GitHub repository (Settings → Secrets and variables → Actions) | `HF_TOKEN` | write: dataset repo, model repo, Space |
 | Google Colab (Secrets) | `HF_TOKEN` | write: dataset repo, model repo, Space |
-| Hugging Face Space (Settings → Secrets) | `HF_TOKEN` | **read-only**, model repo only |
+| Hugging Face Space (Settings → Secrets) | `HF_TOKEN` | read-only, model repo only |
 
 Tokens are never written in code, notebook cells or logs.
 

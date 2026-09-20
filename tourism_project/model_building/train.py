@@ -282,7 +282,7 @@ def top_share_mask(scores: np.ndarray, share: float) -> np.ndarray:
 
 
 def ranking_metrics(target: pd.Series, scores: np.ndarray, cfg: Config) -> dict:
-    """PR-AUC, ROC-AUC and top-share precision and lift: the one metric implementation."""
+    """PR-AUC, ROC-AUC and precision, recall, F1 and lift per contact share: the one metric implementation."""
     actual = np.asarray(target)
     base_rate = actual.mean()  # share of buyers in these rows
     metrics = {
@@ -290,8 +290,18 @@ def ranking_metrics(target: pd.Series, scores: np.ndarray, cfg: Config) -> dict:
         "roc_auc": float(roc_auc_score(actual, scores)),
     }
     for share in cfg.contact_fractions:
-        precision = actual[top_share_mask(scores, share)].mean()
-        metrics[f"{share_key(share)}_precision"] = float(precision)
+        # Contacting this share of the customers: who is called, who of them buys, and how many
+        # of all buyers that reaches. Precision and recall are both fixed by that one decision,
+        # so F1 (their harmonic mean) summarises it in one number.
+        contacted = top_share_mask(scores, share)
+        buyers_contacted = actual[contacted].sum()
+        precision = float(buyers_contacted / contacted.sum())
+        recall = float(buyers_contacted / actual.sum())
+        metrics[f"{share_key(share)}_precision"] = precision
+        metrics[f"{share_key(share)}_recall"] = recall
+        metrics[f"{share_key(share)}_f1"] = (
+            float(2 * precision * recall / (precision + recall)) if precision + recall else 0.0
+        )
         metrics[f"{share_key(share)}_lift"] = float(precision / base_rate)
     return metrics
 
@@ -950,8 +960,14 @@ def runs_overview(results: list[CandidateResult], cfg: Config) -> pd.DataFrame:
             "cv_pr_auc_mean": result.metrics["cv_pr_auc_mean"],
             "cv_pr_auc_std": result.metrics["cv_pr_auc_std"],
             "cv_roc_auc_mean": result.metrics["cv_roc_auc_mean"],
-            f"cv_{share_key(cfg.tiebreak_contact_fraction)}_precision_mean":
-                result.metrics[f"cv_{share_key(cfg.tiebreak_contact_fraction)}_precision_mean"],
+            # Precision, recall and F1 of one concrete decision: contacting the top 10% of the
+            # ranking. They make the ranking metrics above tangible without fixing a threshold yet.
+            **{
+                f"cv_top10_{name}": result.metrics[
+                    f"cv_{share_key(cfg.tiebreak_contact_fraction)}_{name}_mean"
+                ]
+                for name in ("precision", "recall", "f1")
+            },
             "overfit_gap_pr_auc": result.metrics["overfit_gap_pr_auc"],
         }
         # Only hyperparameters that were searched are shown; a column stays empty for models
